@@ -1,3 +1,18 @@
+---
+title: "인공지능, 머신러닝, 딥러닝의 용어 알고 가기"
+categories:
+  - Machine Learning
+tags: 
+  - [AI]
+toc: true
+toc_sticky: true
+toc_label: "On this page"
+published: true
+
+date: 2021-08-08
+last_modified_at: 2022-06-26
+---
+
 ### Bank Conflicts
 
 CUDA를 공부하면 Shared Memory에 대한 개념을 접할 수 있습니다. 그러면서 \`Bank Conflicts\`에 대한 개념을 접할 수 있는데요. 아래와 같은 그림 혹은 비슷한 그림들을 보셨을 겁니다. Bank Conflicts는 메모리 요청이 뱅크에 중복되게 일어날 때 발생하는 것을 나타냅니다.

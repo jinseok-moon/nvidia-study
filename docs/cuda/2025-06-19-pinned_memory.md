@@ -1,3 +1,19 @@
+---
+title: "Pageable vs. Pinned Data Transfer"
+categories:
+  - Machine Learning
+tags: 
+  - [CUDA]
+toc: true
+toc_sticky: true
+toc_label: "On this page"
+published: true
+
+date: 2025-06-19
+last_modified_at: 2022-06-26
+---
+
+
 ## [CUDA] Pageable vs. Pinned Data Transfer
 CUDA에서 host에서 device로 memory를 복사하는 방법은 `cudaMemcpy` API 를 활용하는 방법이 있다. 기본적으로 별다른 작업 없이 선언된 host의 데이터는 pageable data로 동작한다. pageable data로부터 데이터를 device에 복사하기 위해서는 host 내부에서 pageable -> pinned memory로 한 번 옮겨가야 하기 때문에 속도가 느려지게 된다.
 
