@@ -4,6 +4,15 @@
 #include <random>
 #include "../utils/utils.hpp"
 
+bool check_result(int* ref, int* result, int size) {
+  for (int i = 0; i < size; i++) {
+    if (result[i] != ref[i]) {
+      return false;
+    }
+  }
+  return true;
+}
+
 // Naive GEMM implementation in CPU
 void gemm_cpu(int* A, int* B, int* C, int M, int N, int K) {
   for (int m = 0; m < M; m++) {
@@ -16,8 +25,26 @@ void gemm_cpu(int* A, int* B, int* C, int M, int N, int K) {
 }
 
 // Naive GEMM implementation in GPU
-void gemm_gpu(int* A, int* B, int* C, int M, int N, int K) {
-  // TODO: Implement GPU GEMM
+__global__ void gemm_gpu_0(int* A, int* B, int* C, int M, int N, int K) {
+  int x = blockIdx.x * blockDim.x + threadIdx.x;
+  int y = blockIdx.y * blockDim.y + threadIdx.y;
+  if (x >= M || y >= N)
+    return;
+
+  int sum = 0;
+  for (int k = 0; k < K; k++) {
+    sum += A[x * K + k] * B[k * N + y];
+  }
+
+  C[x * N + y] = sum;
+}
+
+void launch_gpu_kernel(int* A, int* B, int* C, int M, int N, int K) {
+  int block_size = 32;
+  dim3 block(block_size, block_size, 1);
+  dim3 grid((M + block_size - 1) / block_size,
+            (N + block_size - 1) / block_size);
+  gemm_gpu_0<<<grid, block>>>(A, B, C, M, N, K);
 }
 
 int main(int argc, char* argv[]) {
@@ -39,6 +66,17 @@ int main(int argc, char* argv[]) {
   int* A = (int*)malloc(M * K * sizeof(int));
   int* B = (int*)malloc(K * N * sizeof(int));
   int* C = (int*)malloc(M * N * sizeof(int));
+  int* dev_A = nullptr;
+  int* dev_B = nullptr;
+  int* dev_C = nullptr;
+  int* host_C = nullptr;
+  cudaMalloc((void**)&dev_A, M * K * sizeof(int));
+  cudaMalloc((void**)&dev_B, K * N * sizeof(int));
+  cudaMalloc((void**)&dev_C, M * N * sizeof(int));
+  host_C = (int*)malloc(M * N * sizeof(int));
+  cudaEvent_t evt_start, evt_end;
+  CUDA_CHECK(cudaEventCreate(&evt_start));
+  CUDA_CHECK(cudaEventCreate(&evt_end));
 
   // Initialize matrices with random values
   std::random_device rd;
@@ -52,6 +90,9 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < M * N; i++)
     C[i] = 0;
 
+  cudaMemcpy(dev_A, A, M * K * sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(dev_B, B, K * N * sizeof(int), cudaMemcpyHostToDevice);
+
   // Run CPU GEMM
   auto start = std::chrono::high_resolution_clock::now();
   gemm_cpu(A, B, C, M, N, K);
@@ -60,9 +101,20 @@ int main(int argc, char* argv[]) {
       std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
   std::cout << "CPU GEMM time: " << duration.count() << " ms" << std::endl;
 
-  // // Run GPU GEMM
-  // start = std::chrono::high_resolution_clock::now();
-  // gemm_gpu(A, B, C, M, N, K);
-  // end = std::chrono::high_resolution_clock::now();
+  // Run GPU GEMM
+  CUDA_CHECK(cudaEventRecord(evt_start));
+  launch_gpu_kernel(dev_A, dev_B, dev_C, M, N, K);
+  CUDA_CHECK(cudaEventRecord(evt_end));
+  CUDA_CHECK(cudaEventSynchronize(evt_end));
+  float elapsed_time;
+  CUDA_CHECK(cudaEventElapsedTime(&elapsed_time, evt_start, evt_end));
+  std::cout << "GPU GEMM time: " << elapsed_time << " ms" << std::endl;
+
+  cudaMemcpy(host_C, dev_C, M * N * sizeof(int), cudaMemcpyDeviceToHost);
+  if (check_result(C, host_C, M * N)) {
+    std::cout << "GPU GEMM result is correct" << std::endl;
+  } else {
+    std::cout << "GPU GEMM result is incorrect" << std::endl;
+  }
   return 0;
 }
