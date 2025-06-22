@@ -20,5 +20,5 @@ Bandwidth: 27.2116 GB/s
 
 Pinned memory를 사용하면 속도가 빨라짐을 알 수 있다. 하지만 시스템 메모리를 사용하는 만큼 상황에 맞게 사용해야함을 주의하자.
 
-### References
+## References
 - https://developer.nvidia.com/blog/how-optimize-data-transfers-cuda-cc/
