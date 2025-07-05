@@ -42,7 +42,7 @@ python ${TRITON_ROOT}/triton/tools/compile.py \
      128" \
     -g "(seqlen_q + 127) / 128, batch * nheads, 1"
 ```
-- - n : python에 정의한 triton 커널 이름
+- -n : python에 정의한 triton 커널 이름
 - -o : output 위치
 - --output-name : C++에서 사용하게 될 함수 이름
 - -w : warp 개수
