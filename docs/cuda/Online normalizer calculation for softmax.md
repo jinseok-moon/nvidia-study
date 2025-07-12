@@ -30,16 +30,13 @@ $$
 </p>
 
 위 알고리즘의 분모 $d_V$ 를 구하는 방법은 점화식으로 나타낼 수 있다. 여기서 $e^m$ 항들은 지수법칙으로 빼낼 수 있음을 생각하자.
+<p align="center">
+<img src = "attachments/img-20250707110600.png" width="600">
+</p>
 
-$$
-\begin{aligned}
-d_j &= \sum^j_{i=1}\left(e^{x_i-m_j}\right) \\
-  &= \left(\sum^{j-1}_{i=1}e^{x_i-m_j}\right) + e^{x_j-m_j} \\
-  &= \left(\sum^{j-1}_{i=1}e^{x_i-m_j }\right) + e^{x_j-m_j} \\
-  &= \left(\sum^{j-1}_{i=1}e^{x_i-m_{j-1}}\right) \times e^{m_{j-1}-m_j} + e^{x_j-m_j} \\
-  &= d_{j-1} \times e^{m_{j-1}-m_j} + e^{x_j-m_j}
-\end{aligned}
-$$
+<p align="center">
+<img src = "attachments/img-20250712154313.png" width="600">
+</p>
 
 이 수식 전개를 통해서 local max 값을 이용하면서 분모 $d_V$ 를 같이 업데이트할 수 있게 되었다. 이 수식은 여전히 safe 할까? 기존의 값을 안정화하던 $m_j$ 는 여전히 해당 값을 처리할 때 안정성을 제공하여 overflow/underflow를 방지한다. $d_j$ 의 내부에서 $e^{x_i-m_j}$ 를 계산할 때, 지수항은 $x_i-m_j \le 0, e^{x_i-m_j} \le 1$ 을 만족하기 때문에, $d_j$ 는 1 이상 j 이하의 값을 갖기 때문에 안정적이다.
 
