@@ -30,9 +30,6 @@ $$
 </p>
 
 위 알고리즘의 분모 $d_V$ 를 구하는 방법은 점화식으로 나타낼 수 있다. 여기서 $e^m$ 항들은 지수법칙으로 빼낼 수 있음을 생각하자.
-<p align="center">
-<img src = "attachments/img-20250707110600.png" width="600">
-</p>
 
 <p align="center">
 <img src = "attachments/img-20250712154313.png" width="600">
