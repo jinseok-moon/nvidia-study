@@ -41,7 +41,7 @@ d_j &= \sum^j_{i=1}\left(e^{x_i-m_j}\right) \\
 \end{aligned}
 $$
 
-이 수식 전개를 통해서 local max 값을 이용하면서 분모 $d_V$ 를 같이 업데이트할 수 있게 되었다. 이 수식은 여전히 safe 할까? 기존의 값을 안정화하던 $m_j$ 는 여전히 해당 값을 처리할 때 안정성을 제공하여 overflow/underflow를 방지한다. $d_j$ 의 내부에서 $e^{x_i-m_j}$ 를 계산할 때, 지수항은 $x_i-m_j \le 0, e^{x_i-m_j} \le 1$ 을 만족하기 때문에, $d_j$ 는 1 이상 j 이하의 값을 갖기 때문에 안정적이다.
+이 수식 전개를 통해서 local max 값을 이용하면서 분모 $d_V$ 를 같이 업데이트할 수 있게 되었다. 이 수식은 여전히 safe 할까? 기존의 값을 안정화하던 $m_j$ 는 여전히 해당 값을 처리할 때 안정성을 제공하여 overflow/underflow를 방지한다. $d_j$ 의 내부에서 $e^{x_i-m_j}$ 를 계산할 때, 지수항은 $x_i-m_j \le 0, e^{x_i-m_j} \le 1$ 을 만족하기 때문에, $d_j$ 는 1 이상 j 이하의 값을 갖기 때문에 안정적이다.
 
 ## References
 1. [Online normalizer calculation for softmax](https://arxiv.org/abs/1805.02867)
