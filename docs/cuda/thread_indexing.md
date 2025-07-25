@@ -35,4 +35,3 @@ kernel_1 mean time: 0.0028352 ms
 <p align="center">
 <img src = "attachments/img-20250725111502.png" width="600">
 </p>
-물론 애초에 
