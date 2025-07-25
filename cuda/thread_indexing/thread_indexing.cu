@@ -1,0 +1,82 @@
+#include <cuda_runtime.h>
+#include <iostream>
+#include <vector>
+#include "../utils/utils.hpp"
+#include <cuda_fp16.h>
+#include <thrust/device_vector.h>
+#include <thrust/extrema.h>
+#include <thrust/host_vector.h>
+#include <thrust/system/cuda/memory.h>
+
+using namespace std;
+
+__global__ void kernel_0(int* d_vec_a, int* d_vec_b, int* output, int size) {
+  int index = threadIdx.x * 32 + threadIdx.y;
+  for (int i = index; i < size; i += 32 * 32) {
+    output[i] = d_vec_a[i] + d_vec_b[i];
+  }
+}
+
+__global__ void kernel_1(int* d_vec_a, int* d_vec_b, int* output, int size) {
+  int index = threadIdx.y * 32 + threadIdx.x;
+  for (int i = index; i < size; i += 32 * 32) {
+    output[i] = d_vec_a[i] + d_vec_b[i];
+  }
+}
+
+__global__ void warm_up_gpu(){
+  unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  float ia, ib;
+  ia = ib = 0.0f;
+  ib += ia + tid; 
+}
+
+void launch_gpu_kernel_0(int *d_vec_a, int *d_vec_b, int *output, int size) {
+  dim3 block(32, 32, 1);
+  dim3 grid(1, 1);
+  kernel_0<<<grid, block>>>(d_vec_a, d_vec_b, output, size);
+}
+
+void launch_gpu_kernel_1(int *d_vec_a, int *d_vec_b, int *output, int size) {
+  dim3 block(32, 32, 1);
+  dim3 grid(1, 1);
+  kernel_1<<<grid, block>>>(d_vec_a, d_vec_b, output, size);
+}
+
+int main() {
+  int size =1;
+  thrust::device_vector<int> d_vec_a(32 * 32*size);
+  thrust::device_vector<int> d_vec_b(32 * 32*size);
+  thrust::host_vector<int> h_vec_a(32 * 32*size);
+  thrust::host_vector<int> h_vec_b(32 * 32*size);
+  thrust::device_vector<int> output_vec(32 * 32*size);
+  
+  thrust::copy(h_vec_a.begin(), h_vec_a.end(), d_vec_a.begin());
+  thrust::copy(h_vec_b.begin(), h_vec_b.end(), d_vec_b.begin());
+
+  for (int i = 0; i < 10; i++) {
+    warm_up_gpu<<<1, 1>>>();
+  }
+
+
+  for (int i = 0; i < 10; i++) {
+  auto result = profiler.time_function("kernel_0", launch_gpu_kernel_0,
+                         thrust::raw_pointer_cast(d_vec_a.data()),
+                         thrust::raw_pointer_cast(d_vec_b.data()),
+                         thrust::raw_pointer_cast(output_vec.data()),
+                         32 * 32*size);
+  }
+
+  profiler.print_mean_time("kernel_0");
+  profiler.clear_time_vec();
+  for (int i = 0; i < 10; i++) {
+  auto result = profiler.time_function("kernel_1", launch_gpu_kernel_1,
+                         thrust::raw_pointer_cast(d_vec_a.data()),
+                         thrust::raw_pointer_cast(d_vec_b.data()),
+                         thrust::raw_pointer_cast(output_vec.data()),
+                          32 * 32*size);
+  }
+  profiler.print_mean_time("kernel_1");
+
+  return 0;
+}
