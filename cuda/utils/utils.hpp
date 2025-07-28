@@ -14,6 +14,20 @@
     }                                                                       \
   } while (0)
 
+__global__ void warm_up_gpu() {
+  unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
+  float ia, ib;
+  ia = ib = 0.0f;
+  ib += ia + tid;
+}
+
+void warmup(int times = 10) {
+  for (int i = 0; i < times; i++) {
+    warm_up_gpu<<<1, 1>>>();
+  }
+  cudaDeviceSynchronize();
+}
+
 class Profiler {
 public:
   Profiler() {

@@ -1,12 +1,28 @@
-#include <cuda_runtime.h>
+#include "../utils/utils.hpp"
 #include <chrono>
+#include <cuda_runtime.h>
+#include <functional>
 #include <iostream>
 #include <random>
-#include "../utils/utils.hpp"
+#include <cublas_v2.h>
 
-bool check_result(int* ref, int* result, int size) {
+#define BLOCKSIZE 32
+constexpr float EPS = 1e-5;
+#define TIMES 1
+#define SIZE 4096
+
+bool check_result(float *ref, float *result, int size, float threshold = 0.01) {
   for (int i = 0; i < size; i++) {
-    if (result[i] != ref[i]) {
+    float diff = abs(result[i] - ref[i]);
+    float ref_abs = abs(ref[i]);
+
+    // Use relative error if reference value is not too small
+    float relative_error = diff / (ref_abs + EPS);
+    if (relative_error > threshold) {
+      std::cout << "result[" << i << "] = " << result[i] << " != ref[" << i
+                << "] = " << ref[i]
+                << " (relative error: " << relative_error * 100 << "%)"
+                << std::endl;
       return false;
     }
   }
@@ -14,42 +30,134 @@ bool check_result(int* ref, int* result, int size) {
 }
 
 // Naive GEMM implementation in CPU
-void gemm_cpu(int* A, int* B, int* C, int M, int N, int K) {
+void gemm_cpu(float *A, float *B, float *C, int M, int N, int K) {
+#pragma omp parallel for collapse(2)
   for (int m = 0; m < M; m++) {
     for (int n = 0; n < N; n++) {
+      float sum = 0;
       for (int k = 0; k < K; k++) {
-        C[m * N + n] += A[m * K + k] * B[k * N + n];
+        sum += A[m * K + k] * B[k * N + n];
       }
+      C[m * N + n] = sum;
     }
   }
 }
 
 // Naive GEMM implementation in GPU
-__global__ void gemm_gpu_0(int* A, int* B, int* C, int M, int N, int K) {
-  int x = blockIdx.x * blockDim.x + threadIdx.x;
-  int y = blockIdx.y * blockDim.y + threadIdx.y;
-  if (x >= M || y >= N)
+__global__ void gemm_gpu_0_bad(float *A, float *B, float *C, int M, int N,
+                               int K) {
+  int m = blockIdx.x * blockDim.x + threadIdx.x;
+  int n = blockIdx.y * blockDim.y + threadIdx.y;
+  if (n >= N || m >= M)
     return;
 
-  int sum = 0;
+  float sum = 0;
   for (int k = 0; k < K; k++) {
-    sum += A[x * K + k] * B[k * N + y];
+    sum += A[m * K + k] * B[k * N + n];
   }
 
-  C[x * N + y] = sum;
+  C[m * N + n] = sum;
 }
 
-void launch_gpu_kernel(int* A, int* B, int* C, int M, int N, int K) {
-  int block_size = 32;
-  dim3 block(block_size, block_size, 1);
-  dim3 grid((M + block_size - 1) / block_size,
-            (N + block_size - 1) / block_size);
+__global__ void gemm_gpu_0_good(float *A, float *B, float *C, int M, int N,
+                                int K) {
+  int m = blockIdx.y * blockDim.y + threadIdx.y;
+  int n = blockIdx.x * blockDim.x + threadIdx.x;
+
+  if (n >= N || m >= M)
+    return;
+
+  float sum = 0;
+  for (int k = 0; k < K; k++) {
+    sum += A[m * K + k] * B[k * N + n];
+  }
+
+  C[m * N + n] = sum;
+}
+
+// Naive implementation, with block loop
+// Need lots of register
+__global__ __maxnreg__(64) void gemm_gpu_0(float *A, float *B, float *C, int M,
+                                           int N, int K) {
+  A += blockIdx.y * blockDim.y * K;                           // (bM,0)
+  B += blockIdx.x * blockDim.x;                               // (0,bN)
+  C += blockIdx.y * blockDim.y * N + blockIdx.x * blockDim.x; // (bM,bN)
+
+  float sum = 0;
+  for (int bkIdx = 0; bkIdx < K; bkIdx += BLOCKSIZE) {
+    for (int dotIdx = 0; dotIdx < BLOCKSIZE; dotIdx++) {
+      sum += A[threadIdx.y * K + dotIdx] * B[dotIdx * N + threadIdx.x];
+    }
+    A += BLOCKSIZE;
+    B += BLOCKSIZE * N;
+  }
+  C[threadIdx.y * N + threadIdx.x] = sum;
+}
+
+__global__ void gemm_gpu_1(float *A, float *B, float *C, int M, int N, int K) {
+  A += blockIdx.y * blockDim.y * K;                           // (bM,0)
+  B += blockIdx.x * blockDim.x;                               // (0,bN)
+  C += blockIdx.y * blockDim.y * N + blockIdx.x * blockDim.x; // (bM,bN)
+
+  __shared__ float A_shared[BLOCKSIZE * BLOCKSIZE];
+  __shared__ float B_shared[BLOCKSIZE * BLOCKSIZE];
+
+  float sum = 0;
+  for (int bkIdx = 0; bkIdx < K; bkIdx += BLOCKSIZE) {
+    A_shared[threadIdx.y * blockDim.x + threadIdx.x] =
+        A[threadIdx.y * K + threadIdx.x];
+    B_shared[threadIdx.y * blockDim.x + threadIdx.x] =
+        B[threadIdx.y * N + threadIdx.x];
+    __syncthreads();
+
+    A += BLOCKSIZE;
+    B += BLOCKSIZE * N;
+
+    for (int dotIdx = 0; dotIdx < BLOCKSIZE; dotIdx++) {
+      sum += A_shared[threadIdx.y * BLOCKSIZE + dotIdx] *
+             B_shared[dotIdx * BLOCKSIZE + threadIdx.x];
+    }
+
+    __syncthreads();
+  }
+  C[threadIdx.y * N + threadIdx.x] = sum;
+}
+
+void launch_gpu_kernel_cublas(float *A, float *B, float *C, int M, int N, int K, cublasHandle_t handle) {
+  float alpha = 1.0f;
+  float beta = 0.0f;
+  cublasSgemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, B, CUDA_R_32F, N, A, CUDA_R_32F, K, &beta, C, CUDA_R_32F, N);
+}
+
+void launch_gpu_kernel_0_bad(float *A, float *B, float *C, int M, int N,
+                             int K) {
+  dim3 block(BLOCKSIZE, BLOCKSIZE, 1);
+  dim3 grid((M + BLOCKSIZE - 1) / BLOCKSIZE, (N + BLOCKSIZE - 1) / BLOCKSIZE);
+  gemm_gpu_0_bad<<<grid, block>>>(A, B, C, M, N, K);
+}
+
+void launch_gpu_kernel_0_good(float *A, float *B, float *C, int M, int N,
+                              int K) {
+  dim3 block(BLOCKSIZE, BLOCKSIZE, 1);
+  dim3 grid((N + BLOCKSIZE - 1) / BLOCKSIZE, (M + BLOCKSIZE - 1) / BLOCKSIZE);
+  gemm_gpu_0_good<<<grid, block>>>(A, B, C, M, N, K);
+}
+
+void launch_gpu_kernel_0(float *A, float *B, float *C, int M, int N, int K) {
+  dim3 block(BLOCKSIZE, BLOCKSIZE, 1);
+  dim3 grid((N + BLOCKSIZE - 1) / BLOCKSIZE, (M + BLOCKSIZE - 1) / BLOCKSIZE);
   gemm_gpu_0<<<grid, block>>>(A, B, C, M, N, K);
 }
 
-int main(int argc, char* argv[]) {
+void launch_gpu_kernel_1(float *A, float *B, float *C, int M, int N, int K) {
+  dim3 block(BLOCKSIZE, BLOCKSIZE, 1);
+  dim3 grid((N + BLOCKSIZE - 1) / BLOCKSIZE, (M + BLOCKSIZE - 1) / BLOCKSIZE);
+  gemm_gpu_1<<<grid, block>>>(A, B, C, M, N, K);
+}
+
+int main(int argc, char *argv[]) {
   // Default values
-  int M = 1024, N = 1024, K = 1024;
+  int M = SIZE, N = SIZE, K = SIZE;
 
   // Parse command line arguments
   if (argc >= 2)
@@ -63,25 +171,22 @@ int main(int argc, char* argv[]) {
             << std::endl;
 
   // Initialize matrices
-  int* A = (int*)malloc(M * K * sizeof(int));
-  int* B = (int*)malloc(K * N * sizeof(int));
-  int* C = (int*)malloc(M * N * sizeof(int));
-  int* dev_A = nullptr;
-  int* dev_B = nullptr;
-  int* dev_C = nullptr;
-  int* host_C = nullptr;
-  cudaMalloc((void**)&dev_A, M * K * sizeof(int));
-  cudaMalloc((void**)&dev_B, K * N * sizeof(int));
-  cudaMalloc((void**)&dev_C, M * N * sizeof(int));
-  host_C = (int*)malloc(M * N * sizeof(int));
-  cudaEvent_t evt_start, evt_end;
-  CUDA_CHECK(cudaEventCreate(&evt_start));
-  CUDA_CHECK(cudaEventCreate(&evt_end));
+  float *A = (float *)malloc(M * K * sizeof(float));
+  float *B = (float *)malloc(K * N * sizeof(float));
+  float *C = (float *)malloc(M * N * sizeof(float));
+  float *dev_A = nullptr;
+  float *dev_B = nullptr;
+  float *dev_C = nullptr;
+  float *host_C = nullptr;
+  cudaMalloc((void **)&dev_A, M * K * sizeof(float));
+  cudaMalloc((void **)&dev_B, K * N * sizeof(float));
+  cudaMalloc((void **)&dev_C, M * N * sizeof(float));
+  host_C = (float *)malloc(M * N * sizeof(float));
 
   // Initialize matrices with random values
   std::random_device rd;
   std::mt19937 gen(rd());
-  std::uniform_int_distribution<> dis(0, 100);
+  std::uniform_real_distribution<> dis(0, 1);
 
   for (int i = 0; i < M * K; i++)
     A[i] = dis(gen);
@@ -90,31 +195,79 @@ int main(int argc, char* argv[]) {
   for (int i = 0; i < M * N; i++)
     C[i] = 0;
 
-  cudaMemcpy(dev_A, A, M * K * sizeof(int), cudaMemcpyHostToDevice);
-  cudaMemcpy(dev_B, B, K * N * sizeof(int), cudaMemcpyHostToDevice);
+  cublasHandle_t handle;
+  cublasCreate(&handle);
 
-  // Run CPU GEMM
-  auto start = std::chrono::high_resolution_clock::now();
-  gemm_cpu(A, B, C, M, N, K);
-  auto end = std::chrono::high_resolution_clock::now();
-  auto duration =
-      std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-  std::cout << "CPU GEMM time: " << duration.count() << " ms" << std::endl;
+  cudaMemcpy(dev_A, A, M * K * sizeof(float), cudaMemcpyHostToDevice);
+  cudaMemcpy(dev_B, B, K * N * sizeof(float), cudaMemcpyHostToDevice);
+  warmup(1);
+  launch_gpu_kernel_cublas(dev_A, dev_B, dev_C, M, N, K, handle);
 
-  // Run GPU GEMM
-  CUDA_CHECK(cudaEventRecord(evt_start));
-  launch_gpu_kernel(dev_A, dev_B, dev_C, M, N, K);
-  CUDA_CHECK(cudaEventRecord(evt_end));
-  CUDA_CHECK(cudaEventSynchronize(evt_end));
-  float elapsed_time;
-  CUDA_CHECK(cudaEventElapsedTime(&elapsed_time, evt_start, evt_end));
-  std::cout << "GPU GEMM time: " << elapsed_time << " ms" << std::endl;
-
-  cudaMemcpy(host_C, dev_C, M * N * sizeof(int), cudaMemcpyDeviceToHost);
-  if (check_result(C, host_C, M * N)) {
-    std::cout << "GPU GEMM result is correct" << std::endl;
-  } else {
-    std::cout << "GPU GEMM result is incorrect" << std::endl;
+  
+  // Run CPU GEMM using timing wrapper
+  for (int i = 0; i < 1; i++) {
+    profiler.time_function("CPU GEMM", gemm_cpu,
+                           A, B, C, M, N, K);
   }
+  profiler.print_mean_time("CPU GEMM");
+  profiler.clear_time_vec();
+
+  // Run CPU GEMM using timing wrapper
+  for (int i = 0; i < TIMES; i++) {
+    profiler.time_function("CUBLAS GEMM", launch_gpu_kernel_cublas,
+                           dev_A, dev_B, dev_C, M, N, K, handle);
+  }
+  profiler.print_mean_time("CUBLAS GEMM");
+  profiler.clear_time_vec();
+
+  cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+  check_result(C, host_C, M * N);
+  cudaMemset(dev_C, 0, M * N * sizeof(float));
+
+  for (int i = 0; i < TIMES; i++) {
+    profiler.time_function("GPU GEMM 0 BAD CASE", launch_gpu_kernel_0_bad,
+                           dev_A, dev_B, dev_C, M, N, K);
+  }
+  CUDA_CHECK(cudaDeviceSynchronize());
+  profiler.print_mean_time("GPU GEMM 0 BAD CASE");
+  profiler.clear_time_vec();
+
+  cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+  check_result(C, host_C, M * N);
+  cudaMemset(dev_C, 0, M * N * sizeof(float));
+  for (int i = 0; i < TIMES; i++) {
+    profiler.time_function("GPU GEMM 0 GOOD CASE", launch_gpu_kernel_0_good,
+                           dev_A, dev_B, dev_C, M, N, K);
+  }
+  CUDA_CHECK(cudaDeviceSynchronize());
+  profiler.print_mean_time("GPU GEMM 0 GOOD CASE");
+  profiler.clear_time_vec();
+
+  cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+  check_result(C, host_C, M * N);
+  cudaMemset(dev_C, 0, M * N * sizeof(float));
+
+  for (int i = 0; i < TIMES; i++) {
+    profiler.time_function("GPU GEMM 0", launch_gpu_kernel_0, dev_A, dev_B,
+                           dev_C, M, N, K);
+  }
+  CUDA_CHECK(cudaDeviceSynchronize());
+  profiler.print_mean_time("GPU GEMM 0");
+  profiler.clear_time_vec();
+  cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+  check_result(C, host_C, M * N);
+  cudaMemset(dev_C, 0, M * N * sizeof(float));
+
+  for (int i = 0; i < TIMES; i++) {
+    profiler.time_function("GPU GEMM 1", launch_gpu_kernel_1, dev_A, dev_B,
+                           dev_C, M, N, K);
+  }
+  CUDA_CHECK(cudaDeviceSynchronize());
+  profiler.print_mean_time("GPU GEMM 1");
+  profiler.clear_time_vec();
+  cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+  check_result(C, host_C, M * N);
+  cudaMemset(dev_C, 0, M * N * sizeof(float));
+
   return 0;
 }
