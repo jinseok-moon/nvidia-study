@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(nvidia-study LANGUAGES CXX CUDA)
 
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Standards
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -34,7 +35,6 @@ target_link_libraries(cuda_common INTERFACE CUDA::cudart)
 # Common include dirs
 set(PROJ_UTILS_DIR ${CMAKE_SOURCE_DIR}/src/cuda/utils)
 target_include_directories(cuda_common INTERFACE ${PROJ_UTILS_DIR})
-
 # ----- Auto-discover CUDA samples -----
 
 add_subdirectory(src/cuda)

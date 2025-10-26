@@ -8,3 +8,4 @@ excalidraw
 *.ncu-rep
 *.nsys-rep
 build
+.cache

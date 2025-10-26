@@ -1,12 +1,12 @@
-#include <cuda_runtime.h>
-#include <iostream>
-#include <vector>
-#include "../utils/utils.hpp"
 #include <cuda_fp16.h>
+#include <cuda_runtime.h>
 #include <thrust/device_vector.h>
 #include <thrust/extrema.h>
 #include <thrust/host_vector.h>
 #include <thrust/system/cuda/memory.h>
+#include <utils.h>
+
+static LatencyProfiler profiler;
 
 using namespace std;
 
@@ -47,29 +47,18 @@ int main() {
   thrust::copy(h_vec_a.begin(), h_vec_a.end(), d_vec_a.begin());
   thrust::copy(h_vec_b.begin(), h_vec_b.end(), d_vec_b.begin());
 
-  for (int i = 0; i < 10; i++) {
-    warm_up_gpu<<<1, 1>>>();
-  }
+  profiler.benchmark_kernel("kernel_0", [&]() {
+    launch_gpu_kernel_0(thrust::raw_pointer_cast(d_vec_a.data()),
+                        thrust::raw_pointer_cast(d_vec_b.data()),
+                        thrust::raw_pointer_cast(output_vec.data()),
+                        32 * 32 * size);
+  });
 
-
-  for (int i = 0; i < 10; i++) {
-  auto result = profiler.time_function("kernel_0", launch_gpu_kernel_0,
-                         thrust::raw_pointer_cast(d_vec_a.data()),
-                         thrust::raw_pointer_cast(d_vec_b.data()),
-                         thrust::raw_pointer_cast(output_vec.data()),
-                         32 * 32*size);
-  }
-
-  profiler.print_mean_time("kernel_0");
-  profiler.clear_time_vec();
-  for (int i = 0; i < 10; i++) {
-  auto result = profiler.time_function("kernel_1", launch_gpu_kernel_1,
-                         thrust::raw_pointer_cast(d_vec_a.data()),
-                         thrust::raw_pointer_cast(d_vec_b.data()),
-                         thrust::raw_pointer_cast(output_vec.data()),
-                          32 * 32*size);
-  }
-  profiler.print_mean_time("kernel_1");
-
+  profiler.benchmark_kernel("kernel_1", [&]() {
+    launch_gpu_kernel_1(thrust::raw_pointer_cast(d_vec_a.data()),
+                        thrust::raw_pointer_cast(d_vec_b.data()),
+                        thrust::raw_pointer_cast(output_vec.data()),
+                        32 * 32 * size);
+  });
   return 0;
 }

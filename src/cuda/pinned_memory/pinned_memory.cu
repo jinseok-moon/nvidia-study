@@ -1,5 +1,5 @@
 #include <cuda_fp16.h>
-#include "../utils/utils.hpp"
+#include <utils.h>
 
 int main() {
   size_t size = 1024 * 1024 * 1024;
