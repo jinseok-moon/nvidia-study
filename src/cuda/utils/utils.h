@@ -1,10 +1,9 @@
 #pragma once
 #include <cuda_runtime.h>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <numeric>
-#include <random>
-#include <string>
 #include <vector>
 
 #define CUDA_CHECK(call)                                                       \
@@ -19,13 +18,6 @@
 
 inline int ceil_div(int a, int b) { return (a + b - 1) / b; }
 
-inline void make_random() {
-  // Initialize matrices with random values
-  std::random_device rd;
-  std::mt19937 gen(rd());
-  std::uniform_real_distribution<> dis(0, 1);
-}
-
 class LatencyProfiler {
 public:
   LatencyProfiler() {
@@ -39,8 +31,9 @@ public:
 
   // Function to perform warmup and benchmark runs
   float benchmark_kernel(const std::string &name,
-                         std::function<void()> kernel_func, int warmup_runs=10,
-                         int benchmark_runs=20) {
+                         std::function<void()> kernel_func,
+                         int warmup_runs = 10, int benchmark_runs = 20)
+  {
     // Warmup runs
     for (int i = 0; i < warmup_runs; ++i) {
       kernel_func();
@@ -56,9 +49,20 @@ public:
     // Calculate average time
     float avg_time =
         std::accumulate(times.begin(), times.end(), 0.0f) / benchmark_runs;
-    std::cout << "[RESULT][AVG LATENCY][WARMUP: " << warmup_runs
-              << "][RUN: " << benchmark_runs << "]"
-              << " [" << name << "] " << avg_time << " [ms]" << std::endl;
+
+    // ANSI color codes
+    const char *CYAN = "\033[36m";
+    const char *BOLD = "\033[1m";
+    const char *GREEN = "\033[32m";
+    const char *DIM = "\033[2m";
+    const char *RESET = "\033[0m";
+
+    std::cout << CYAN << "[BENCHMARK] " << RESET << BOLD << std::right
+              << std::setw(30) << name << RESET << " │ " << GREEN << std::fixed
+              << std::setprecision(6) << avg_time << " ms" << RESET << DIM
+              << " (w:" << warmup_runs << " r:" << benchmark_runs << ")"
+              << RESET << std::endl;
+
     return avg_time;
   }
 

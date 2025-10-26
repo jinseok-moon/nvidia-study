@@ -58,8 +58,9 @@ __global__ void gemm_gpu_0_naive(float *A, float *B, float *C, int M, int N,
   C[m * N + n] = sum;
 }
 
-__global__ void gemm_gpu_1_naive_memory_coalescing(float *A, float *B, float *C,
-                                                   int M, int N, int K) {
+__global__ void gemm_gpu_1_dram_coalescing(float *A, float *B, float *C, int M,
+                                           int N, int K)
+{
   int m = blockIdx.y * blockDim.y + threadIdx.y;
   int n = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -75,8 +76,9 @@ __global__ void gemm_gpu_1_naive_memory_coalescing(float *A, float *B, float *C,
 }
 
 template <int BLOCKSIZE>
-__global__ void gemm_gpu_2_smem(float *A, float *B, float *C, int M, int N,
-                                int K) {
+__global__ void gemm_gpu_2_sram_caching(float *A, float *B, float *C, int M,
+                                        int N, int K)
+{
   int cRow = blockIdx.y;
   int cCol = blockIdx.x;
 
@@ -110,8 +112,9 @@ __global__ void gemm_gpu_2_smem(float *A, float *B, float *C, int M, int N,
 }
 
 template <int BM, int BN, int BK, int TM>
-__global__ void gemm_gpu_3_smem_1d_tiling(float *A, float *B, float *C, int M,
-                                          int N, int K) {
+__global__ void gemm_gpu_3_sram_1d_tiling(float *A, float *B, float *C, int M,
+                                          int N, int K)
+{
 
   int cRow = blockIdx.y;
   int cCol = blockIdx.x;
@@ -156,8 +159,9 @@ __global__ void gemm_gpu_3_smem_1d_tiling(float *A, float *B, float *C, int M,
 }
 
 template <int BM, int BN, int BK, int TM, int TN>
-__global__ void gemm_gpu_4_smem_2d_tiling(float *A, float *B, float *C, int M,
-                                          int N, int K) {
+__global__ void gemm_gpu_4_sram_2d_tiling(float *A, float *B, float *C, int M,
+                                          int N, int K)
+{
 
   int cRow = blockIdx.y;
   int cCol = blockIdx.x;
@@ -245,28 +249,28 @@ template <int BLOCKSIZE>
 void launch_gpu_kernel_1(float *A, float *B, float *C, int M, int N, int K) {
   dim3 block(BLOCKSIZE, BLOCKSIZE, 1);
   dim3 grid((N + BLOCKSIZE - 1) / BLOCKSIZE, (M + BLOCKSIZE - 1) / BLOCKSIZE);
-  gemm_gpu_1_naive_memory_coalescing<<<grid, block>>>(A, B, C, M, N, K);
+  gemm_gpu_1_dram_coalescing<<<grid, block>>>(A, B, C, M, N, K);
 }
 
 template <int BLOCKSIZE>
 void launch_gpu_kernel_2(float *A, float *B, float *C, int M, int N, int K) {
   dim3 block(BLOCKSIZE * BLOCKSIZE);
   dim3 grid((N + BLOCKSIZE - 1) / BLOCKSIZE, (M + BLOCKSIZE - 1) / BLOCKSIZE);
-  gemm_gpu_2_smem<BLOCKSIZE><<<grid, block>>>(A, B, C, M, N, K);
+  gemm_gpu_2_sram_caching<BLOCKSIZE><<<grid, block>>>(A, B, C, M, N, K);
 }
 
 template <int BM, int BN, int BK, int TM>
 void launch_gpu_kernel_3(float *A, float *B, float *C, int M, int N, int K) {
   dim3 block((BM * BN) / TM);
   dim3 grid(ceil_div(N, BN), ceil_div(M, BM));
-  gemm_gpu_3_smem_1d_tiling<BM, BN, BK, TM><<<grid, block>>>(A, B, C, M, N, K);
+  gemm_gpu_3_sram_1d_tiling<BM, BN, BK, TM><<<grid, block>>>(A, B, C, M, N, K);
 }
 
 template <int BM, int BN, int BK, int TM, int TN>
 void launch_gpu_kernel_4(float *A, float *B, float *C, int M, int N, int K) {
   dim3 block((BM * BN) / (TM * TN));
   dim3 grid(ceil_div(N, BN), ceil_div(M, BM));
-  gemm_gpu_4_smem_2d_tiling<BM, BN, BK, TM, TN>
+  gemm_gpu_4_sram_2d_tiling<BM, BN, BK, TM, TN>
       <<<grid, block>>>(A, B, C, M, N, K);
 }
 
