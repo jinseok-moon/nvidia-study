@@ -1,0 +1,26 @@
+# CUTLASS-like structure: define a helper and add_subdirectory per example
+
+add_custom_target(cuda_examples)
+
+function(cuda_example_add_executable NAME)
+  add_executable(${NAME} ${ARGN})
+  target_link_libraries(${NAME} PRIVATE cuda_common)
+
+  target_link_libraries(${NAME} PRIVATE CUDA::cublas)
+  target_link_libraries(${NAME} PRIVATE OpenMP::OpenMP_CXX)
+  target_compile_options(${NAME} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fopenmp>)
+
+  set_property(TARGET ${NAME} PROPERTY FOLDER "cuda-samples")
+  set_property(TARGET ${NAME} PROPERTY CUDA_ARCHITECTURES "80;89;120")
+  add_dependencies(cuda_examples ${NAME})
+endfunction()
+
+# Discover immediate child example directories and include them
+file(GLOB children RELATIVE ${CMAKE_CURRENT_SOURCE_DIR} "*")
+foreach(child ${children})
+  if(IS_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/${child})
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/${child}/CMakeLists.txt)
+      add_subdirectory(${child})
+    endif()
+  endif()
+endforeach()

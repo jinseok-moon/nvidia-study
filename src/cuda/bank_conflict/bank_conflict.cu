@@ -6,8 +6,6 @@ using namespace std;
 // Ideal case
 __global__ void kernel_0(int* d_vec, int* output) {
   __shared__ int shared_mem[32 * 32];
-  int row = threadIdx.x;
-
   shared_mem[threadIdx.x] = d_vec[threadIdx.x];
 
   __syncthreads();
@@ -18,25 +16,23 @@ __global__ void kernel_0(int* d_vec, int* output) {
 // Bank conflicts!
 __global__ void kernel_1(int* d_vec, int* output) {
   __shared__ int shared_mem[32 * 32];
-  int row = threadIdx.x;
 
-  shared_mem[row * 32] = d_vec[threadIdx.x];
+  shared_mem[threadIdx.x * 32] = d_vec[threadIdx.x];
 
   __syncthreads();
 
-  output[threadIdx.x] = shared_mem[row * 32];
+  output[threadIdx.x] = shared_mem[threadIdx.x * 32];
 }
 
 // Does not occur bank conflicts
 __global__ void kernel_2(int* d_vec, int* output) {
   __shared__ int shared_mem[32 * 32];
-  int row = threadIdx.x;
 
-  shared_mem[row * 32 + threadIdx.x] = d_vec[threadIdx.x];
+  shared_mem[threadIdx.x * 32 + threadIdx.x] = d_vec[threadIdx.x];
 
   __syncthreads();
 
-  output[threadIdx.x] = shared_mem[row * 32 + threadIdx.x];
+  output[threadIdx.x] = shared_mem[threadIdx.x * 32 + threadIdx.x];
 }
 
 // Does not occur bank conflicts

@@ -1,15 +1,13 @@
 #include "../utils/utils.hpp"
-#include <chrono>
+#include <cublas_v2.h>
 #include <cuda_runtime.h>
-#include <functional>
 #include <iostream>
 #include <random>
-#include <cublas_v2.h>
 
 #define BLOCKSIZE 32
 constexpr float EPS = 1e-5;
 #define TIMES 1
-#define SIZE 4096
+#define SIZE 1024
 
 bool check_result(float *ref, float *result, int size, float threshold = 0.01) {
   for (int i = 0; i < size; i++) {
@@ -205,66 +203,38 @@ int main(int argc, char *argv[]) {
 
   
   // Run CPU GEMM using timing wrapper
-  for (int i = 0; i < 1; i++) {
-    profiler.time_function("CPU GEMM", gemm_cpu,
+  profiler.time_function("CPU GEMM", 1, gemm_cpu,
                            A, B, C, M, N, K);
-  }
-  profiler.print_mean_time("CPU GEMM");
-  profiler.clear_time_vec();
 
   // Run CPU GEMM using timing wrapper
-  for (int i = 0; i < TIMES; i++) {
-    profiler.time_function("CUBLAS GEMM", launch_gpu_kernel_cublas,
+  profiler.time_function("CUBLAS GEMM", TIMES, launch_gpu_kernel_cublas,
                            dev_A, dev_B, dev_C, M, N, K, handle);
-  }
-  profiler.print_mean_time("CUBLAS GEMM");
-  profiler.clear_time_vec();
 
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
 
-  for (int i = 0; i < TIMES; i++) {
-    profiler.time_function("GPU GEMM 0 BAD CASE", launch_gpu_kernel_0_bad,
+  profiler.time_function("GPU GEMM 0 BAD CASE", TIMES, launch_gpu_kernel_0_bad,
                            dev_A, dev_B, dev_C, M, N, K);
-  }
-  CUDA_CHECK(cudaDeviceSynchronize());
-  profiler.print_mean_time("GPU GEMM 0 BAD CASE");
-  profiler.clear_time_vec();
 
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
-  for (int i = 0; i < TIMES; i++) {
-    profiler.time_function("GPU GEMM 0 GOOD CASE", launch_gpu_kernel_0_good,
+  profiler.time_function("GPU GEMM 0 GOOD CASE", TIMES, launch_gpu_kernel_0_good,
                            dev_A, dev_B, dev_C, M, N, K);
-  }
-  CUDA_CHECK(cudaDeviceSynchronize());
-  profiler.print_mean_time("GPU GEMM 0 GOOD CASE");
-  profiler.clear_time_vec();
 
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
 
-  for (int i = 0; i < TIMES; i++) {
-    profiler.time_function("GPU GEMM 0", launch_gpu_kernel_0, dev_A, dev_B,
+  profiler.time_function("GPU GEMM 0", TIMES, launch_gpu_kernel_0, dev_A, dev_B,
                            dev_C, M, N, K);
-  }
-  CUDA_CHECK(cudaDeviceSynchronize());
-  profiler.print_mean_time("GPU GEMM 0");
-  profiler.clear_time_vec();
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
 
-  for (int i = 0; i < TIMES; i++) {
-    profiler.time_function("GPU GEMM 1", launch_gpu_kernel_1, dev_A, dev_B,
+  profiler.time_function("GPU GEMM 1", TIMES, launch_gpu_kernel_1, dev_A, dev_B,
                            dev_C, M, N, K);
-  }
-  CUDA_CHECK(cudaDeviceSynchronize());
-  profiler.print_mean_time("GPU GEMM 1");
-  profiler.clear_time_vec();
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
