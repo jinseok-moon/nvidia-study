@@ -1,11 +1,10 @@
 #pragma once
-#include <functional>
 #include <cuda_runtime.h>
+#include <functional>
 #include <iostream>
 #include <numeric>
+#include <random>
 #include <string>
-#include <unordered_map>
-#include <utility>
 #include <vector>
 
 #define CUDA_CHECK(call)                                                       \
@@ -17,6 +16,15 @@
       exit(1);                                                                 \
     }                                                                          \
   } while (0)
+
+inline int ceil_div(int a, int b) { return (a + b - 1) / b; }
+
+inline void make_random() {
+  // Initialize matrices with random values
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::uniform_real_distribution<> dis(0, 1);
+}
 
 class LatencyProfiler {
 public:
