@@ -1,13 +1,15 @@
 이 글은 [포스트](https://siboehm.com/articles/22/CUDA-MMM)를  참고하며 직접 커널과 그림을 작성하며 진행한 공부이다.
 
 CUDA는 cuBLAS에서 최적화된 GEMM api를 제공한다. 이론적으로, 직접 커널을 작성하여 cuBLAS 급의 성능을 낼 수 있다. 이 과정에서 CUDA의 최적화 개념들을 하나씩 적용하면서 따라가보자. 우선, 편의성을 위해, 아래와 같이 설정한다. 
+
 - A: (M, K), row-major
 - B: (K, N), row-major
 - C: (M, N), row-major
 - DRAM: Global memory
 - SRAM: Shared memory
-
+
 구현은 다음과 같고, 결과를 먼저 보이면 아래와 같다.
+
 0. Naive implementation
 1. DRAM coalescing
 2. SRAM caching
@@ -30,7 +32,7 @@ Matrix dimensions: M=1024, N=1024, K=1024
 <img src = "attachments/img-20250726161438.png" width="600">
 </p>
 
-아래의 그림은 warp-level에서의 GEMM operation을 나타낸다. Loop 구조상, A를 load할 때 스레드들은 비연속적인 메모리에 접근한다. Memory coalescing이 불가능하다. B를 load할 때는 모든 스레드가 같은 값에 접근하기 때문에 warp 내의 broadcast가 동작한다. 하지만 결과적으로 보면 이 스레드들을 하나의 워프로 묶는건 이점이 없다.
+아래의 그림은 warp-level에서의 GEMM operation을 나타낸다. Loop 구조상, A를 load할 때 스레드들은 비연속적인 메모리에 접근한다. Memory coalescing이 불가능하다. B를 load할 때는 모든 스레드가 같은 값에 접근하기 때문에 warp 내의 broadcast가 동작한다. 하지만 결과적으로 보면 이 스레드들을 하나의 워프로 묶는건 이점이 없다.
 
 <p align="center">
 <img src = "attachments/img-20250726150958.png" width="600">
@@ -100,7 +102,7 @@ $ sudo /usr/local/cuda/bin/ncu --metrics dram__bytes.sum.per_second a.out
 ## 2. SRAM caching
 Naive 구현체는 데이터를 반복해서 가져와야하는데, DRAM에서 여러번 가져오는 것은 성능적 손실이 크다. [Paper](https://arxiv.org/abs/1804.06826)에 따르면 V100 기준으로 DRAM bandwidth는 900 GB/s, SRAM bandwidth는 13,800 GB/s 이다 (SRAM bandwidth는 공식적으로 수치가 알려져있지는 않다). 
 
-따라서 SRAM에 올려두고 최대한 재사용해야하는 것이다. 이 단계의 커널에서는 아래 그림과 같이 small block을 정의해서 데이터를 처리하도록 한다.
+따라서 SRAM에 올려두고 최대한 재사용해야하는 것이다. 이 단계의 커널에서는 아래 그림과 같이 small block을 정의해서 데이터를 처리하도록 한다.
 
 <p align="center">
 <img src = "attachments/img-20250728140211.png" width="600">
@@ -158,7 +160,7 @@ SRAM caching을 활용함으로써 성능이 향상되었지만 여전히 cuBLAS
 
 Warp 내에서 하나의 스레드는 column 방향으로 C matrix의 8개의 원소를 계산하게 구현하고, 이를 바탕으로 아까의 메모리 식을 다시 계산해보면,
 
-- DRAM: K/8 iterations of outer loop * 2 loads
+- DRAM: K/8 iterations of outer loop * 2 loads
 - SRAM: K/8 iterations of outer loop * BK(=8) * (1 + TM(=8))
 - Memory accesses per result: K/32 DRAM, K * 9/8 SRAM
 
