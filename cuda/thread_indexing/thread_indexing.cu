@@ -24,13 +24,6 @@ __global__ void kernel_1(int* d_vec_a, int* d_vec_b, int* output, int size) {
   }
 }
 
-__global__ void warm_up_gpu(){
-  unsigned int tid = blockIdx.x * blockDim.x + threadIdx.x;
-  float ia, ib;
-  ia = ib = 0.0f;
-  ib += ia + tid; 
-}
-
 void launch_gpu_kernel_0(int *d_vec_a, int *d_vec_b, int *output, int size) {
   dim3 block(32, 32, 1);
   dim3 grid(1, 1);
