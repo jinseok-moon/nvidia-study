@@ -43,8 +43,8 @@ void gemm_cpu(float *A, float *B, float *C, int M, int N, int K) {
 }
 
 // Naive GEMM implementation in GPU
-__global__ void gemm_gpu_0_bad(float *A, float *B, float *C, int M, int N,
-                               int K) {
+__global__ void gemm_gpu_0_naive(float *A, float *B, float *C, int M, int N,
+                                 int K) {
   int m = blockIdx.x * blockDim.x + threadIdx.x;
   int n = blockIdx.y * blockDim.y + threadIdx.y;
   if (n >= N || m >= M)
@@ -58,8 +58,8 @@ __global__ void gemm_gpu_0_bad(float *A, float *B, float *C, int M, int N,
   C[m * N + n] = sum;
 }
 
-__global__ void gemm_gpu_0_good(float *A, float *B, float *C, int M, int N,
-                                int K) {
+__global__ void gemm_gpu_1_naive_memory_coalescing(float *A, float *B, float *C,
+                                                   int M, int N, int K) {
   int m = blockIdx.y * blockDim.y + threadIdx.y;
   int n = blockIdx.x * blockDim.x + threadIdx.x;
 
@@ -75,7 +75,8 @@ __global__ void gemm_gpu_0_good(float *A, float *B, float *C, int M, int N,
 }
 
 template <int BLOCKSIZE>
-__global__ void gemm_gpu_1(float *A, float *B, float *C, int M, int N, int K) {
+__global__ void gemm_gpu_2_smem(float *A, float *B, float *C, int M, int N,
+                                int K) {
   int cRow = blockIdx.y;
   int cCol = blockIdx.x;
 
@@ -109,7 +110,8 @@ __global__ void gemm_gpu_1(float *A, float *B, float *C, int M, int N, int K) {
 }
 
 template <int BM, int BN, int BK, int TM>
-__global__ void gemm_gpu_2(float *A, float *B, float *C, int M, int N, int K) {
+__global__ void gemm_gpu_3_smem_1d_tiling(float *A, float *B, float *C, int M,
+                                          int N, int K) {
 
   int cRow = blockIdx.y;
   int cCol = blockIdx.x;
@@ -140,7 +142,7 @@ __global__ void gemm_gpu_2(float *A, float *B, float *C, int M, int N, int K) {
 
     for (int dotIdx = 0; dotIdx < BK; dotIdx++) {
       float _b = B_shared[dotIdx * BN + threadCol];
-      for (uint resIdx = 0; resIdx < TM; ++resIdx) {
+      for (int resIdx = 0; resIdx < TM; resIdx++) {
         threadResults[resIdx] +=
             A_shared[(threadRow * TM + resIdx) * BK + dotIdx] * _b;
       }
@@ -153,6 +155,77 @@ __global__ void gemm_gpu_2(float *A, float *B, float *C, int M, int N, int K) {
   }
 }
 
+template <int BM, int BN, int BK, int TM, int TN>
+__global__ void gemm_gpu_4_smem_2d_tiling(float *A, float *B, float *C, int M,
+                                          int N, int K) {
+
+  int cRow = blockIdx.y;
+  int cCol = blockIdx.x;
+  A += cRow * BM * K;             // (bM,0)
+  B += cCol * BN;                 // (0,bN)
+  C += cRow * BM * N + cCol * BN; // (bM,bN)
+
+  int totalResultsBlocktile = BM * BN;
+  int numThreadsBlocktile = totalResultsBlocktile / (TM * TN);
+
+  __shared__ float A_shared[BM * BK];
+  __shared__ float B_shared[BK * BN];
+
+  int threadRow = threadIdx.x / (BN / TN);
+  int threadCol = threadIdx.x % (BN / TN);
+
+  int innerRowA = threadIdx.x / BK;
+  int innerColA = threadIdx.x % BK;
+
+  int innerRowB = threadIdx.x / BN;
+  int innerColB = threadIdx.x % BN;
+
+  int strideA = numThreadsBlocktile / BK;
+  int strideB = numThreadsBlocktile / BN;
+
+  float threadResults[TM * TN] = {0.0};
+  float regM[TM] = {0.0};
+  float regN[TN] = {0.0};
+
+  for (int bkIdx = 0; bkIdx < K; bkIdx += BK) {
+    for (int offset = 0; offset < BM; offset += strideA) {
+      A_shared[(innerRowA + offset) * BK + innerColA] =
+          A[(innerRowA + offset) * K + innerColA];
+    }
+    for (int offset = 0; offset < BK; offset += strideB) {
+      B_shared[(innerRowB + offset) * BN + innerColB] =
+          B[(innerRowB + offset) * N + innerColB];
+    }
+    __syncthreads();
+
+    A += BK;
+    B += BK * N;
+
+    for (int dotIdx = 0; dotIdx < BK; dotIdx++) {
+      for (int i = 0; i < TM; i++) {
+        regM[i] = A_shared[(threadRow * TM + i) * BK + dotIdx];
+      }
+      for (int i = 0; i < TN; i++) {
+        regN[i] = B_shared[dotIdx * BN + threadCol * TN + i];
+      }
+      for (int resIdxM = 0; resIdxM < TM; resIdxM++) {
+        for (int resIdxN = 0; resIdxN < TN; resIdxN++) {
+          threadResults[resIdxM * TN + resIdxN] +=
+              regM[resIdxM] * regN[resIdxN];
+        }
+      }
+      __syncthreads();
+    }
+  }
+
+  for (int resIdxM = 0; resIdxM < TM; resIdxM++) {
+    for (int resIdxN = 0; resIdxN < TN; resIdxN++) {
+      C[(threadRow * TM + resIdxM) * N + threadCol * TN + resIdxN] =
+          threadResults[resIdxM * TN + resIdxN];
+    }
+  }
+}
+
 void launch_gpu_kernel_cublas(float *A, float *B, float *C, int M, int N, int K,
                               cublasHandle_t handle) {
   float alpha = 1.0f;
@@ -162,33 +235,39 @@ void launch_gpu_kernel_cublas(float *A, float *B, float *C, int M, int N, int K,
 }
 
 template <int BLOCKSIZE>
-void launch_gpu_kernel_0_bad(float *A, float *B, float *C, int M, int N,
-                             int K) {
+void launch_gpu_kernel_0(float *A, float *B, float *C, int M, int N, int K) {
   dim3 block(BLOCKSIZE, BLOCKSIZE, 1);
   dim3 grid((M + BLOCKSIZE - 1) / BLOCKSIZE, (N + BLOCKSIZE - 1) / BLOCKSIZE);
-  gemm_gpu_0_bad<<<grid, block>>>(A, B, C, M, N, K);
-}
-
-template <int BLOCKSIZE>
-void launch_gpu_kernel_0_good(float *A, float *B, float *C, int M, int N,
-                              int K) {
-  dim3 block(BLOCKSIZE, BLOCKSIZE, 1);
-  dim3 grid((N + BLOCKSIZE - 1) / BLOCKSIZE, (M + BLOCKSIZE - 1) / BLOCKSIZE);
-  gemm_gpu_0_good<<<grid, block>>>(A, B, C, M, N, K);
+  gemm_gpu_0_naive<<<grid, block>>>(A, B, C, M, N, K);
 }
 
 template <int BLOCKSIZE>
 void launch_gpu_kernel_1(float *A, float *B, float *C, int M, int N, int K) {
+  dim3 block(BLOCKSIZE, BLOCKSIZE, 1);
+  dim3 grid((N + BLOCKSIZE - 1) / BLOCKSIZE, (M + BLOCKSIZE - 1) / BLOCKSIZE);
+  gemm_gpu_1_naive_memory_coalescing<<<grid, block>>>(A, B, C, M, N, K);
+}
+
+template <int BLOCKSIZE>
+void launch_gpu_kernel_2(float *A, float *B, float *C, int M, int N, int K) {
   dim3 block(BLOCKSIZE * BLOCKSIZE);
   dim3 grid((N + BLOCKSIZE - 1) / BLOCKSIZE, (M + BLOCKSIZE - 1) / BLOCKSIZE);
-  gemm_gpu_1<BLOCKSIZE><<<grid, block>>>(A, B, C, M, N, K);
+  gemm_gpu_2_smem<BLOCKSIZE><<<grid, block>>>(A, B, C, M, N, K);
 }
 
 template <int BM, int BN, int BK, int TM>
-void launch_gpu_kernel_2(float *A, float *B, float *C, int M, int N, int K) {
+void launch_gpu_kernel_3(float *A, float *B, float *C, int M, int N, int K) {
   dim3 block((BM * BN) / TM);
   dim3 grid(ceil_div(N, BN), ceil_div(M, BM));
-  gemm_gpu_2<BM, BN, BK, TM><<<grid, block>>>(A, B, C, M, N, K);
+  gemm_gpu_3_smem_1d_tiling<BM, BN, BK, TM><<<grid, block>>>(A, B, C, M, N, K);
+}
+
+template <int BM, int BN, int BK, int TM, int TN>
+void launch_gpu_kernel_4(float *A, float *B, float *C, int M, int N, int K) {
+  dim3 block((BM * BN) / (TM * TN));
+  dim3 grid(ceil_div(N, BN), ceil_div(M, BM));
+  gemm_gpu_4_smem_2d_tiling<BM, BN, BK, TM, TN>
+      <<<grid, block>>>(A, B, C, M, N, K);
 }
 
 int main(int argc, char *argv[]) {
@@ -248,33 +327,43 @@ int main(int argc, char *argv[]) {
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
 
-  profiler.benchmark_kernel("GPU GEMM 0 BAD CASE", [&]() {
-    launch_gpu_kernel_0_bad<32>(dev_A, dev_B, dev_C, M, N, K);
+  profiler.benchmark_kernel("GPU GEMM 0 NAIVE", [&]() {
+    launch_gpu_kernel_0<32>(dev_A, dev_B, dev_C, M, N, K);
   });
 
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
-  profiler.benchmark_kernel("GPU GEMM 0 GOOD CASE", [&]() {
-    launch_gpu_kernel_0_good<32>(dev_A, dev_B, dev_C, M, N, K);
-  });
-
-  cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
-  check_result(C, host_C, M * N);
-  cudaMemset(dev_C, 0, M * N * sizeof(float));
-
-  profiler.benchmark_kernel("GPU GEMM 1", [&]() {
+  profiler.benchmark_kernel("GPU GEMM 1 MEMORY COALESCING", [&]() {
     launch_gpu_kernel_1<32>(dev_A, dev_B, dev_C, M, N, K);
   });
+
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
 
-  profiler.benchmark_kernel("GPU GEMM 2", [&]() {
-    launch_gpu_kernel_2<64, 64, 8, 8>(dev_A, dev_B, dev_C, M, N, K);
+  profiler.benchmark_kernel("GPU GEMM 2 SMEM", [&]() {
+    launch_gpu_kernel_2<32>(dev_A, dev_B, dev_C, M, N, K);
   });
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
+
+  profiler.benchmark_kernel("GPU GEMM 3 1D TILING", [&]() {
+    launch_gpu_kernel_3<64, 64, 8, 8>(dev_A, dev_B, dev_C, M, N, K);
+  });
+  cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+  check_result(C, host_C, M * N);
+  cudaMemset(dev_C, 0, M * N * sizeof(float));
+
+  profiler.benchmark_kernel("GPU GEMM 4 2D TILING", [&]() {
+    launch_gpu_kernel_4<64, 64, 8, 8, 8>(dev_A, dev_B, dev_C, M, N, K);
+  });
+  cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
+  check_result(C, host_C, M * N);
+  cudaMemset(dev_C, 0, M * N * sizeof(float));
+
+  CUDA_CHECK(cudaDeviceSynchronize());
+
   return 0;
 }
