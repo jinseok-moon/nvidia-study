@@ -8,7 +8,7 @@ static LatencyProfiler profiler;
 
 constexpr float EPS = 1e-5;
 #define TIMES 1
-#define SIZE 1024
+#define SIZE 4096
 
 bool check_result(float *ref, float *result, int size, float threshold = 0.01) {
   for (int i = 0; i < size; i++) {
@@ -218,8 +218,8 @@ __global__ void gemm_gpu_4_sram_2d_tiling(float *A, float *B, float *C, int M,
               regM[resIdxM] * regN[resIdxN];
         }
       }
-      __syncthreads();
     }
+    __syncthreads();
   }
 
   for (int resIdxM = 0; resIdxM < TM; resIdxM++) {
@@ -321,12 +321,12 @@ int main(int argc, char *argv[]) {
   cudaMemcpy(dev_B, B, K * N * sizeof(float), cudaMemcpyHostToDevice);
   launch_gpu_kernel_cublas(dev_A, dev_B, dev_C, M, N, K, handle);
 
-  profiler.benchmark_kernel("CPU_GEMM", [&]() { gemm_cpu(A, B, C, M, N, K); });
+  // profiler.benchmark_kernel("CPU_GEMM", [&]() { gemm_cpu(A, B, C, M, N, K); });
 
   profiler.benchmark_kernel("CUBLAS GEMM", [&]() {
     launch_gpu_kernel_cublas(dev_A, dev_B, dev_C, M, N, K, handle);
   });
-
+  cudaMemcpy(C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
@@ -360,9 +360,8 @@ int main(int argc, char *argv[]) {
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));
 
-  profiler.benchmark_kernel("GPU GEMM 4 2D TILING", [&]() {
-    launch_gpu_kernel_4<64, 64, 8, 8, 8>(dev_A, dev_B, dev_C, M, N, K);
-  });
+  profiler.benchmark_kernel("GPU GEMM 4 2D TILING", [&]()
+                            { launch_gpu_kernel_4<128, 128, 8, 8, 8>(dev_A, dev_B, dev_C, M, N, K); });
   cudaMemcpy(host_C, dev_C, M * N * sizeof(float), cudaMemcpyDeviceToHost);
   check_result(C, host_C, M * N);
   cudaMemset(dev_C, 0, M * N * sizeof(float));

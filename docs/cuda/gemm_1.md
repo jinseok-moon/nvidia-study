@@ -155,13 +155,13 @@ SRAM caching을 활용함으로써 성능이 향상되었지만 여전히 cuBLAS
 이 문제는 동일한 메모리를 재활용하는 것으로 해결이 가능하다. 1개의 스레드가 8개의 element의 output을 만들어내게끔 타일링을 하면 다음과 같다.
 
 <p align="center">
-<img src = "attachments/img-20251025151410.png" width="600">
+<img src = "attachments/gemm_1/image.png" width="600">
 </p>
 
 Warp 내에서 하나의 스레드는 column 방향으로 C matrix의 8개의 원소를 계산하게 구현하고, 이를 바탕으로 아까의 메모리 식을 다시 계산해보면,
 
-- DRAM: K/8 iterations of outer loop * 2 loads
-- SRAM: K/8 iterations of outer loop * BK(=8) * (1 + TM(=8))
+- DRAM: K/8 iters (dotIdx) loop * 2 loads
+- SRAM: K/8 iters (dotIdx) loop * BK(=8) * (1 + TM(=8))
 - Memory accesses per result: K/32 DRAM, K * 9/8 SRAM
 
  `K/16 -> K/32 DRAM`, `K*2 -> K*9/8 SRAM` 으로, 결과 한개당 메모리접근이 줄어들게 된다.
