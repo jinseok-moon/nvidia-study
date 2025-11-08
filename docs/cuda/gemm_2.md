@@ -62,8 +62,36 @@ void launch_gpu_kernel_4(float *A, float *B, float *C, int M, int N, int K) {
 }
 ```
 
-이렇게 하고 다시 메모리를 확인하면, 성능이 향상됨을 알 수 있다.
+<p align="center">
+<img src = "attachments/gemm_2/image-2.png" width="600">
+</p>
+
+dotIdx를 loop unrolling 하면 위와 같이 생겼다. 우리는 총 16 SRAM load 만 하면 된다.
+
 - DRAM: K/8 iters * 2 (=A+B) * 4 (=sizeSRAM/numThreads) loads
 - SRAM: K/8 iters * 8 (=dotIdx) * 2 (=A+B) * 8 (=TM,=TN) loads
 - Memory accesses per result: K/64 DRAM, K/4 SRAM
+
+## 5. Vectorized SRAM 2d tiling
+GPU에서, SRAM을 load 하는 명령어 `LDS`는 128비트까지 지원 가능하다. 이 이야기는 즉, 위의 2d-tiling 커널에서 A를 전치시키면 한번에 보다 많은 데이터를 효율적으로 읽어올 수 있다는 뜻이다. `LDS.128` 명령어를 활용하기 위해서 A를 전치시키자. 그럼 우리가 이미 B를 불러올 때 하던 것처럼 모양이 나온다.
+
+<p align="center">
+<img src = "attachments/gemm_2/image-3.png" width="600">
+</p>
+
+`float4` 벡터 자료형을 이용하면, 128비트 명령어로 대체되고, 성능이 빨라진다.
+
+```cuda
+float4 tmp =
+    reinterpret_cast<float4 *>(&A[innerRowA * K + innerColA * 4])[0];
+// transpose A during the GMEM to SMEM transfer
+As[(innerColA * 4 + 0) * BM + innerRowA] = tmp.x;
+As[(innerColA * 4 + 1) * BM + innerRowA] = tmp.y;
+As[(innerColA * 4 + 2) * BM + innerRowA] = tmp.z;
+As[(innerColA * 4 + 3) * BM + innerRowA] = tmp.w;
+
+reinterpret_cast<float4 *>(&Bs[innerRowB * BN + innerColB * 4])[0] =
+    reinterpret_cast<float4 *>(&B[innerRowB * N + innerColB * 4])[0];
+__syncthreads();
+```
 

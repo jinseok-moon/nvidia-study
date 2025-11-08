@@ -29,10 +29,17 @@ public:
     cudaEventDestroy(evt_end);
   }
 
+#ifdef DEBUG
+#define WARMUP_RUNS 0
+#define BENCHMARK_RUNS 1
+#else
+#define WARMUP_RUNS 10
+#define BENCHMARK_RUNS 20
+#endif
   // Function to perform warmup and benchmark runs
   float benchmark_kernel(const std::string &name,
                          std::function<void()> kernel_func,
-                         int warmup_runs = 10, int benchmark_runs = 20)
+                         int warmup_runs = WARMUP_RUNS, int benchmark_runs = BENCHMARK_RUNS)
   {
     // Warmup runs
     for (int i = 0; i < warmup_runs; ++i) {
