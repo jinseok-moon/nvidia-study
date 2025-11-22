@@ -16,7 +16,7 @@
     }                                                                          \
   } while (0)
 
-inline int ceil_div(int a, int b) { return (a + b - 1) / b; }
+inline int ceil_div(int value, int divisor) { return (value + divisor - 1) / divisor; }
 
 class LatencyProfiler {
 public:
@@ -70,6 +70,52 @@ public:
               << " (w:" << warmup_runs << " r:" << benchmark_runs << ")"
               << RESET << std::endl;
 
+    return avg_time;
+  }
+
+  // Function to perform warmup and benchmark runs
+  float benchmark_and_validate_kernel(const std::string &name, std::function<void()> kernel_func, std::function<bool()> validate_func,
+                                      int warmup_runs = WARMUP_RUNS, int benchmark_runs = BENCHMARK_RUNS)
+  {
+    // Warmup runs
+    for (int i = 0; i < warmup_runs; ++i)
+    {
+      kernel_func();
+    }
+
+    // Benchmark runs
+    std::vector<float> times;
+    for (int i = 0; i < benchmark_runs; ++i)
+    {
+      float time = time_function(kernel_func);
+      times.push_back(time);
+    }
+
+    // Calculate average time
+    float avg_time =
+        std::accumulate(times.begin(), times.end(), 0.0f) / benchmark_runs;
+
+    // ANSI color codes
+    const char *CYAN = "\033[36m";
+    const char *BOLD = "\033[1m";
+    const char *GREEN = "\033[32m";
+    const char *RED = "\033[31m";
+    const char *DIM = "\033[2m";
+    const char *RESET = "\033[0m";
+
+    if (validate_func())
+    {
+      std::cout << CYAN << "[BENCHMARK] " << RESET << BOLD << std::right
+                << std::setw(30) << name << RESET << " │ " << GREEN << std::fixed
+                << std::setprecision(6) << avg_time << " ms" << RESET << DIM << " (w:" << warmup_runs << " r:" << benchmark_runs << ")" << RESET << BOLD << GREEN << " [PASSED]" << RESET << std::endl;
+    }
+    else
+    {
+      std::cout << CYAN << "[BENCHMARK] " << RESET << BOLD << RED << std::right
+                << std::setw(30) << name << RESET << " │ " << RED << std::fixed
+                << std::setprecision(6) << avg_time << " ms" << RESET << DIM
+                << " (w:" << warmup_runs << " r:" << benchmark_runs << ")" << RESET << BOLD << RED << " [FAILED]" << RESET << std::endl;
+    }
     return avg_time;
   }
 

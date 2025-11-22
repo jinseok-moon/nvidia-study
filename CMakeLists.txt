@@ -28,10 +28,6 @@ endif()
 # Common compile options
 add_library(cuda_common INTERFACE)
 target_compile_features(cuda_common INTERFACE cxx_std_20)
-# target_compile_options(cuda_common INTERFACE
-#   $<$<COMPILE_LANGUAGE:CXX>:-O3>
-#   $<$<COMPILE_LANGUAGE:CUDA>:-O3>
-# )
 
 # Find CUDA package
 set(nvtx3_dir /usr/local/cuda/include/nvtx3)
