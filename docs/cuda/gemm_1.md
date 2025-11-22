@@ -15,10 +15,11 @@ CUDA는 cuBLAS에서 최적화된 GEMM api를 제공한다. 직접 작성한 커
 2. SRAM 1d tiling
 
 ```
-Matrix dimensions: M=1024, N=1024, K=1024
-[BENCHMARK]                    CUBLAS GEMM │ 0.045430 ms (w:10 r:20)
-[BENCHMARK]               GPU GEMM 0 NAIVE │ 3.949082 ms (w:10 r:20) [PASSED]
-[BENCHMARK]     GPU GEMM 0 DRAM COALESCING │ 0.519186 ms (w:10 r:20) [PASSED]
+[BENCHMARK]                    CUBLAS GEMM │ 0.045334 ms (w:10 r:20)
+[BENCHMARK]               GPU GEMM 0 NAIVE │ 3.943722 ms (w:10 r:20) [PASSED]
+[BENCHMARK]     GPU GEMM 0 DRAM COALESCING │ 0.517949 ms (w:10 r:20) [PASSED]
+[BENCHMARK]        GPU GEMM 1 SRAM CACHING │ 0.248670 ms (w:10 r:20) [PASSED]
+[BENCHMARK]      GPU GEMM 2 SRAM 1D TILING │ 0.249046 ms (w:10 r:20) [PASSED]
 ```
 
 ## 0. Naive implementation
@@ -92,7 +93,7 @@ Naive 구현체는 데이터를 반복해서 가져와야하는데, DRAM에서 �
 <img src = "attachments/gemm_1/image-1.png" width="600">
 </p>
 
-각 블록은 32x32 크기를 가지고 C의 결과값을 하나씩 담당해서 연산을 한다. 각 블록에서 필요로 하는 DRAM의 메모리는 위 그림의 빗금친 영역이다. bkIdx loop를 통해서 SRAM에 store할 영역으로 이동하고, tIter loop를 통해서 SRAM load - gemm 연산을 수행한다. 1 result per thread 이므로 결과값은 단일 변수 `sum` s에 누적해서 최종적으로 DRAM C에 저장한다.
+각 블록은 32x32 크기를 가지고 C의 결과값을 하나씩 담당해서 연산을 한다. 각 블록에서 필요로 하는 DRAM의 메모리는 위 그림의 빗금친 영역이다. bkIdx loop를 통해서 SRAM에 store할 영역으로 이동하고, tIter loop를 통해서 SRAM load - gemm 연산을 수행한다. 1 result per thread 이므로 결과값은 단일 변수 `sum` 에 누적해서 최종적으로 DRAM C에 저장한다.
 
 ```cuda
 template <int BLOCKSIZE>
