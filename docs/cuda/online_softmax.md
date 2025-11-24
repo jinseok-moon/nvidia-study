@@ -4,7 +4,7 @@ $$
 $$
 
 <p align="center">
-<img src = "attachments//online_softmax/image.png" widht="640">
+<img src = "attachments/online_softmax/image.png" widht="640">
 </p>
 
 Softmax의 수식은 위와 같다. 입력 벡터에 대해서 load 2번, store 1번, 총 3번의 메모리 접근이 필요하다. 이 함수의 의미는 주어진 값들 속에서 각각의 원소의 확률을 계산해준다. 유용한 함수이지만, 실제 컴퓨터상에서 구현하게 될 때는 부동소수점으로 인한 문제가 발생하기 쉽다. 부동소수점은 소수를 컴퓨터로 표현하는 방법인데, 중요한 점은 표현할 수 있는 범위가 한정된다는 것이다. 그런데 softmax 연산에는 지수함수($e^z$)의 특성으로 인해서 값이 아주 커진다. 이 값들의 합연산을 하면 overflow가 발생하기 쉽다. 또한 반대로 음수방향으로 생각하면 아주 작은 값으로 인해 $e^z$ 가 0에 가까워져버린다. 분모에 0이 들어가서 연산을 할 수 없는 오류가 발생해버리는 것. 
@@ -17,7 +17,7 @@ $$
 $$
 
 <p align="center">
-<img src = "attachments//online_softmax/image-1.png" widht="640">
+<img src = "attachments/online_softmax/image-1.png" widht="640">
 </p>
 
 실제 하드웨어적 한계를 극복하면서도 수학적으로 동일한 결과이기 때문에 대부분은 safe softmax를 사용한다. 하지만 최대값 $m_k$ 를 구하는 과정이 추가되었기 때문에 메모리 접근이 4번으로 늘어나는 단점이 있다. 
